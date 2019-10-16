@@ -1,0 +1,11 @@
+# Kconfig - Sodaq Autonomo board configuration
+#
+# Copyright (c) 2019 Sodaq BV.
+# SPDX-License-Identifier: Apache-2.0
+
+if BOARD_SODAQ_AUTONOMO
+
+config BOARD
+	default "sodaq_autonomo"
+
+endif # BOARD_SODAQ_AUTONOMO
