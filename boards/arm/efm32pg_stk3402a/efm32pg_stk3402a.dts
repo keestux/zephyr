@@ -64,6 +64,20 @@
 	status = "okay";
 };
 
+&usart2 {
+
+	compatible = "silabs,gecko-usart-spi";
+
+	#address-cells = <1>;
+        #size-cells = <0>;
+	
+	location-rx = <GECKO_LOCATION(1) GECKO_PORT_A GECKO_PIN(7)>;
+	location-tx = <GECKO_LOCATION(1) GECKO_PORT_A GECKO_PIN(6)>;
+	location-clk = <GECKO_LOCATION(1) GECKO_PORT_A GECKO_PIN(8)>;
+	location-cs = <GECKO_LOCATION(1) GECKO_PORT_A GECKO_PIN(9)>;
+	status = "okay";
+};
+
 &leuart0 {
 	current-speed = <9600>;
 	location-rx = <GECKO_LOCATION(18) GECKO_PORT_D GECKO_PIN(11)>;
