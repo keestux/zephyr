@@ -32,7 +32,7 @@ LOG_MODULE_REGISTER(spi_gecko);
 #define SPI_MAX_CS_SIZE 3
 #define SPI_WORD_SIZE 8
 
-#define SPI_DATA(dev) ((struct spi_gecko_data *) ((dev)->driver_data))
+#define DEV_DATA(dev) ((struct spi_gecko_data *) ((dev)->driver_data))
 
 /* Structure Declarations */
 
@@ -46,11 +46,11 @@ struct spi_gecko_config {
 	struct soc_gpio_pin pin_rx;
 	struct soc_gpio_pin pin_tx;
         struct soc_gpio_pin pin_clk;
-        struct soc_gpio_pin pin_cs;
+        /* struct soc_gpio_pin pin_cs; */
 	u8_t loc_rx;
 	u8_t loc_tx;
         u8_t loc_clk;
-        u8_t loc_cs;
+        /* u8_t loc_cs; */
 };
 
 
@@ -58,6 +58,9 @@ struct spi_gecko_config {
 static int spi_config(struct device *dev, const struct spi_config *config, u16_t *control)
 {
 	const struct spi_gecko_config *gecko_config = dev->config->config_info;
+	struct spi_gecko_data *data = DEV_DATA(dev);
+
+/*	
 	u8_t cs = 0x00;
 
 	if (config->slave != 0) {
@@ -67,7 +70,7 @@ static int spi_config(struct device *dev, const struct spi_config *config, u16_t
 		}
 		cs = (u8_t)(config->slave);
 	}
-
+*/
 	if (SPI_WORD_SIZE_GET(config->operation) != 8) {
 		LOG_ERR("Word size must be %d", SPI_WORD_SIZE);
 		return -ENOTSUP;
@@ -112,28 +115,30 @@ static int spi_config(struct device *dev, const struct spi_config *config, u16_t
 	}
 	
 	/* Set word size */
-	gecko_config->base->FRAME = (uint32_t)SPI_WORD_SIZE_GET(config->operation)
+	gecko_config->base->FRAME = usartDatabits8
                  | USART_FRAME_STOPBITS_DEFAULT
                  | USART_FRAME_PARITY_DEFAULT;
-
+	
+        /* At this point, it's mandatory to set this on the context! */
+	data->ctx.config = config;
+	
 	/* Enable automatic chip select */
-	gecko_config->base->CTRL |= USART_CTRL_AUTOCS;
+	/* gecko_config->base->CTRL |= USART_CTRL_AUTOCS; */
+	spi_context_cs_configure(&data->ctx);
 	
 	return 0;
 }
 
-static void spi_gecko_send(struct device *dev, u8_t frame, u16_t control)
+static void spi_gecko_send(USART_TypeDef *usart, u8_t frame)
 {
-        const struct spi_gecko_config *config = dev->config->config_info;
-	
 	/* Write frame to register */
-        USART_Tx(config->base, frame);
+        USART_Tx(usart, frame);
 
 	/* Start the transfer */
 	/* TODO what to do here? */
 
 	/* Wait until the transfer ends */
-	while (!(config->base->STATUS & USART_STATUS_TXC))
+	while (!(usart->STATUS & USART_STATUS_TXC))
 	        ;
 }
 
@@ -143,28 +148,55 @@ static u8_t spi_gecko_recv(USART_TypeDef *usart)
 	return (u8_t)usart->RXDATA;
 }
 
-static void spi_gecko_xfer(struct device *dev,
-		const struct spi_config *config, u16_t control)
+static bool spi_gecko_transfer_ongoing(struct spi_gecko_data *data)
 {
-	struct spi_context *ctx = &SPI_DATA(dev)->ctx;
-	u32_t send_len = spi_context_longest_current_buf(ctx);
-	u8_t read_data;
+	return spi_context_tx_on(&data->ctx) || spi_context_rx_on(&data->ctx);
+}
 
-	for (u32_t i = 0; i < send_len; i++) {
-		/* Send a frame */
-		if (i < ctx->tx_len) {
-			spi_gecko_send(dev, (u8_t) (ctx->tx_buf)[i],
-					control);
-		} else {
-			/* Send dummy bytes */
-			spi_gecko_send(dev, 0, control);
-		}
-		/* Receive a frame */
-		read_data = spi_gecko_recv(((struct spi_gecko_config *)dev->config->config_info)->base);
-		if (i < ctx->rx_len) {
-			ctx->rx_buf[i] = read_data;
-		}
+static inline u8_t spi_gecko_next_tx(struct spi_gecko_data *data)
+{
+	u8_t tx_frame = 0;
+
+	if (spi_context_tx_buf_on(&data->ctx)) {
+	    tx_frame = UNALIGNED_GET((u8_t *)(data->ctx.tx_buf));
 	}
+
+	return tx_frame;
+}
+
+static int spi_gecko_shift_frames(USART_TypeDef *usart, struct spi_gecko_data *data)
+{
+        u8_t tx_frame;
+	u8_t rx_frame;
+
+	tx_frame = spi_gecko_next_tx(data);
+	spi_gecko_send(usart, tx_frame);
+	spi_context_update_tx(&data->ctx, 1, 1);
+	
+	rx_frame = spi_gecko_recv(usart);
+	if (spi_context_rx_buf_on(&data->ctx)) {
+	    UNALIGNED_PUT(rx_frame, (u8_t *)data->ctx.rx_buf);
+	}
+	spi_context_update_rx(&data->ctx, 1, 1);
+	return 0;
+}
+
+
+static void spi_gecko_xfer(struct device *dev,
+		const struct spi_config *config)
+{
+        int ret;
+	struct spi_context *ctx = &DEV_DATA(dev)->ctx;
+	const struct spi_gecko_config *gecko_config = dev->config->config_info;
+	struct spi_gecko_data *data = DEV_DATA(dev);
+	
+	spi_context_cs_control(ctx, true);
+
+	do {
+		ret = spi_gecko_shift_frames(gecko_config->base, data);
+	} while (!ret && spi_gecko_transfer_ongoing(data));
+
+	spi_context_cs_control(ctx, false);
 	spi_context_complete(ctx, 0);
 }
 
@@ -175,7 +207,7 @@ static void spi_gecko_init_pins(struct device *dev)
 	soc_gpio_configure(&config->pin_rx);
 	soc_gpio_configure(&config->pin_tx);
 	soc_gpio_configure(&config->pin_clk);
-	soc_gpio_configure(&config->pin_cs);
+	/* soc_gpio_configure(&config->pin_cs); */
 
 	/* disable all pins while configuring */
 	config->base->ROUTEPEN = 0;
@@ -183,12 +215,12 @@ static void spi_gecko_init_pins(struct device *dev)
 	config->base->ROUTELOC0 =
 		(config->loc_tx << _USART_ROUTELOC0_TXLOC_SHIFT) |
 		(config->loc_rx << _USART_ROUTELOC0_RXLOC_SHIFT) |
-	        (config->loc_clk << _USART_ROUTELOC0_CLKLOC_SHIFT) |
-		(config->loc_cs << _USART_ROUTELOC0_CSLOC_SHIFT);
+	        (config->loc_clk << _USART_ROUTELOC0_CLKLOC_SHIFT)/* |
+								     (config->loc_cs << _USART_ROUTELOC0_CSLOC_SHIFT)*/ ;
 	config->base->ROUTELOC1 = _USART_ROUTELOC1_RESETVALUE;
 	
 	config->base->ROUTEPEN = USART_ROUTEPEN_RXPEN | USART_ROUTEPEN_TXPEN |
-	    USART_ROUTEPEN_CLKPEN | USART_ROUTEPEN_CSPEN;
+	    USART_ROUTEPEN_CLKPEN/* | USART_ROUTEPEN_CSPEN */;
 }
 
 
@@ -215,7 +247,7 @@ static int spi_gecko_init(struct device *dev)
 	usartInit.autoTx = 0;
 #endif
         /* TODO: Handle CS */
-        usartInit.autoCsEnable = false;
+        /* usartInit.autoCsEnable = false; */
 
 	/* Enable USART clock */
 	CMU_ClockEnable(config->clock, true);
@@ -240,8 +272,8 @@ static int spi_gecko_transceive(struct device *dev,
 	u16_t control = 0;
 
 	spi_config(dev, config, &control);
-	spi_context_buffers_setup(&SPI_DATA(dev)->ctx, tx_bufs, rx_bufs, 1);
-	spi_gecko_xfer(dev, config, control);
+	spi_context_buffers_setup(&DEV_DATA(dev)->ctx, tx_bufs, rx_bufs, 1);
+	spi_gecko_xfer(dev, config);
 	return 0;
 }
 
@@ -294,13 +326,13 @@ static struct spi_driver_api spi_gecko_api = {
             .pin_clk = { DT_INST_##n##_SILABS_GECKO_USART_SPI_LOCATION_CLK_1, \
 			DT_INST_##n##_SILABS_GECKO_USART_SPI_LOCATION_CLK_2, \
 			gpioModePushPull, 1},				\
-            .pin_cs = { DT_INST_##n##_SILABS_GECKO_USART_SPI_LOCATION_CS_1, \
-			DT_INST_##n##_SILABS_GECKO_USART_SPI_LOCATION_CS_2, \
-			gpioModePushPull, 1},				\
+            /* .pin_cs = { DT_INST_##n##_SILABS_GECKO_USART_SPI_LOCATION_CS_1,*/ \
+	    /*	DT_INST_##n##_SILABS_GECKO_USART_SPI_LOCATION_CS_2, */	\
+	    /*	gpioModePushPull, 1},				*/	\
 	    .loc_rx = DT_INST_##n##_SILABS_GECKO_USART_SPI_LOCATION_RX_0, \
 	    .loc_tx = DT_INST_##n##_SILABS_GECKO_USART_SPI_LOCATION_TX_0, \
             .loc_clk = DT_INST_##n##_SILABS_GECKO_USART_SPI_LOCATION_CLK_0, \
-	    .loc_cs = DT_INST_##n##_SILABS_GECKO_USART_SPI_LOCATION_CS_0, \
+	    /*.loc_cs = DT_INST_##n##_SILABS_GECKO_USART_SPI_LOCATION_CS_0, */  \
 	}; \
 	DEVICE_AND_API_INIT(spi_##n, \
 			DT_INST_##n##_SILABS_GECKO_USART_SPI_LABEL, \

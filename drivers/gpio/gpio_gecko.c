@@ -453,3 +453,27 @@ static int gpio_gecko_portf_init(struct device *dev)
 	return 0;
 }
 #endif /* CONFIG_GPIO_GECKO_PORTF */
+
+#ifdef CONFIG_GPIO_GECKO_PORTK
+static int gpio_gecko_portk_init(struct device *dev);
+
+static const struct gpio_gecko_config gpio_gecko_portk_config = {
+	.gpio_base = &GPIO->P[gpioPortK],
+	.gpio_index = gpioPortK,
+};
+
+static struct gpio_gecko_data gpio_gecko_portk_data;
+
+DEVICE_AND_API_INIT(gpio_gecko_portk, DT_GPIO_GECKO_PORTK_NAME,
+		    gpio_gecko_portk_init,
+		    &gpio_gecko_portk_data, &gpio_gecko_portk_config,
+		    POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
+		    &gpio_gecko_driver_api);
+
+static int gpio_gecko_portk_init(struct device *dev)
+{
+	gpio_gecko_add_port(&gpio_gecko_common_data, dev);
+	return 0;
+}
+
+#endif /* CONFIG_GPIO_GECKO_PORTK */

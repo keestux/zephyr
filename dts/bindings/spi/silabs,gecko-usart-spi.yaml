@@ -39,5 +39,5 @@ properties:
       
     location-cs:
       type: array
-      required: true
+      required: false
       description: CS pin configuration defined as <location port pin>
