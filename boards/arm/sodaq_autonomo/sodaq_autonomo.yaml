@@ -9,4 +9,8 @@ toolchain:
   - gnuarmemb
   - xtools
 supported:
+  - gpio
+  - spi
+  - i2c
+  - usb_device
   - hwinfo
