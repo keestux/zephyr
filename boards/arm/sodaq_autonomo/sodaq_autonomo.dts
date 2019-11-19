@@ -47,6 +47,44 @@
 	txpo = <1>;             /* TX PAD[2] */
 };
 
+&sercom1 {
+	status = "okay";
+	compatible = "atmel,sam0-uart";
+	current-speed = <115200>;
+        /* port mux see pinmux.c */
+	rxpo = <1>;             /* RX PAD[1] */
+	txpo = <1>;             /* TX PAD[2] */
+};
+
+&sercom2 {
+	status = "okay";
+	compatible = "atmel,sam0-i2c";
+        /* port mux see pinmux.c */
+	clock-frequency = <I2C_BITRATE_FAST>;
+	label = "I2C_0";
+	#address-cells = <1>;
+	#size-cells = <0>;
+};
+
+&sercom3 {
+	status = "okay";
+	compatible = "atmel,sam0-spi";
+	dipo = <0>;             /* PAD[0] */
+	dopo = <1>;             /* PAD[2], SCK PAD[3] */
+	label = "SPI_0";
+	#address-cells = <1>;
+	#size-cells = <0>;
+};
+
+&sercom4 {
+	status = "okay";
+	compatible = "atmel,sam0-uart";
+	current-speed = <115200>;
+        /* port mux see pinmux.c */
+	rxpo = <1>;             /* RX PAD[1] */
+	txpo = <1>;             /* TX PAD[2] */
+};
+
 &sercom5 {
 	status = "okay";
 	compatible = "atmel,sam0-uart";
@@ -54,15 +92,6 @@
         /* port mux see pinmux.c */
 	rxpo = <1>;             /* RX PAD[1] */
 	txpo = <2>;             /* TX PAD[0], RTS PAD[2], CTS PAD[3] */
-};
-
-&sercom3 {
-	status = "okay";
-	compatible = "atmel,sam0-spi";
-	dipo = <0>;
-	dopo = <1>;
-	#address-cells = <1>;
-	#size-cells = <0>;
 };
 
 &flash0 {
